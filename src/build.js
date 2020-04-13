@@ -3,7 +3,7 @@ import {Node} from "prosemirror-model"
 const noTag = Node.prototype.tag = Object.create(null)
 
 function flatten(schema, children, f) {
-  let result = [], pos = 0, tag = noTag
+  let result = [], pos = 0, tag = noTag, storedMarks = []
 
   for (let i = 0; i < children.length; i++) {
     let child = children[i]
@@ -11,6 +11,14 @@ function flatten(schema, children, f) {
       if (tag == noTag) tag = Object.create(null)
       for (let id in child.tag)
         tag[id] = child.tag[id] + (child.flat || child.isText ? 0 : 1) + pos
+    }
+
+    if (child.storedMarks && child.storedMarks.length > 0) {
+      child.storedMarks.forEach(childStoredMark => {
+        if (!childStoredMark.type.isInSet(storedMarks)) {
+          storedMarks.push(childStoredMark)
+        }
+      });
     }
 
     if (typeof child == "string") {
@@ -37,7 +45,7 @@ function flatten(schema, children, f) {
       result.push(node)
     }
   }
-  return {nodes: result, tag}
+  return {nodes: result, tag, storedMarks: storedMarks.length > 0 ? storedMarks : undefined}
 }
 
 function id(x) { return x }
@@ -61,9 +69,10 @@ function takeAttrs(attrs, args) {
 function block(type, attrs) {
   let result = function(...args) {
     let myAttrs = takeAttrs(attrs, args)
-    let {nodes, tag} = flatten(type.schema, args, id)
+    let {nodes, tag, storedMarks} = flatten(type.schema, args, id)
     let node = type.create(myAttrs, nodes)
     if (tag != noTag) node.tag = tag
+    if (storedMarks && storedMarks.length > 0) node.storedMarks = storedMarks
     return node
   }
   if (type.isLeaf) try { result.flat = [type.create(attrs)] } catch(_) {}
@@ -75,7 +84,7 @@ function mark(type, attrs) {
   return function(...args) {
     let mark = type.create(takeAttrs(attrs, args))
     let {nodes, tag} = flatten(type.schema, args, n => mark.type.isInSet(n.marks) ? n : n.mark(mark.addToSet(n.marks)))
-    return {flat: nodes, tag}
+    return {flat: nodes, tag, storedMarks: nodes.length === 0 ? [mark] : undefined}
   }
 }
 
